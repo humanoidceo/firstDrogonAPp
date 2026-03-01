@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -124,14 +125,50 @@ public:
                 }
 
                 client->execSqlAsync(
-                    "INSERT INTO users(name,email,password) VALUES(?,?,?)",
-                    [callbackPtr](const Result &result) {
-                        Json::Value data;
-                        data["status"] = "ok";
-                        data["id"] = static_cast<Json::UInt64>(result.insertId());
-                        auto resp = HttpResponse::newHttpJsonResponse(data);
-                        resp->setStatusCode(k201Created);
-                        (*callbackPtr)(resp);
+                    "SELECT id FROM users WHERE email=? LIMIT 1",
+                    [callbackPtr, client, name, email, newUserPasswordHash](
+                        const Result &existingUserResult) {
+                        if (!existingUserResult.empty())
+                        {
+                            Json::Value data;
+                            data["status"] = "error";
+                            data["message"] = "email already exists";
+                            auto resp = HttpResponse::newHttpJsonResponse(data);
+                            resp->setStatusCode(k409Conflict);
+                            (*callbackPtr)(resp);
+                            return;
+                        }
+
+                        client->execSqlAsync(
+                            "INSERT INTO users(name,email,password) VALUES(?,?,?)",
+                            [callbackPtr](const Result &result) {
+                                Json::Value data;
+                                data["status"] = "ok";
+                                data["id"] = static_cast<Json::UInt64>(result.insertId());
+                                auto resp = HttpResponse::newHttpJsonResponse(data);
+                                resp->setStatusCode(k201Created);
+                                (*callbackPtr)(resp);
+                            },
+                            [callbackPtr](const DrogonDbException &e) {
+                                Json::Value data;
+                                data["status"] = "error";
+                                if (isDuplicateEmailError(e))
+                                {
+                                    data["message"] = "email already exists";
+                                    auto resp = HttpResponse::newHttpJsonResponse(data);
+                                    resp->setStatusCode(k409Conflict);
+                                    (*callbackPtr)(resp);
+                                    return;
+                                }
+
+                                data["msg"] = e.base().what();
+                                auto resp = HttpResponse::newHttpJsonResponse(data);
+                                resp->setStatusCode(k500InternalServerError);
+                                (*callbackPtr)(resp);
+                            },
+                            name,
+                            email,
+                            newUserPasswordHash);
                     },
                     [callbackPtr](const DrogonDbException &e) {
                         Json::Value data;
@@ -141,9 +178,7 @@ public:
                         resp->setStatusCode(k500InternalServerError);
                         (*callbackPtr)(resp);
                     },
-                    name,
-                    email,
-                    newUserPasswordHash);
+                    email);
             },
             [callbackPtr](const DrogonDbException &e) {
                 Json::Value data;
@@ -158,6 +193,17 @@ public:
     }
 
 private:
+    static bool isDuplicateEmailError(const DrogonDbException &e)
+    {
+        std::string message = e.base().what();
+        std::transform(message.begin(),
+                       message.end(),
+                       message.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return message.find("duplicate") != std::string::npos &&
+               message.find("email") != std::string::npos;
+    }
+
     static std::string trim(const std::string &input)
     {
         size_t start = 0;
