@@ -69,69 +69,38 @@ public:
             return;
         }
 
-        const auto superAdminEmailOpt = getConfigValue("SUPER_ADMIN_EMAIL");
-        const auto superAdminEmail = superAdminEmailOpt ? trim(*superAdminEmailOpt) : "";
-        if (superAdminEmail.empty())
-        {
-            Json::Value data;
-            data["status"] = "error";
-            data["message"] = "SUPER_ADMIN_EMAIL is not configured";
-            auto resp = HttpResponse::newHttpJsonResponse(data);
-            resp->setStatusCode(k500InternalServerError);
-            (*callbackPtr)(resp);
-            return;
-        }
-
-        const auto adminEmail = trim(req->getHeader("x-admin-email"));
-        const auto adminPassword = req->getHeader("x-admin-password");
-        if (adminEmail.empty() || adminPassword.empty())
-        {
-            Json::Value data;
-            data["status"] = "error";
-            data["message"] =
-                "x-admin-email and x-admin-password headers are required";
-            auto resp = HttpResponse::newHttpJsonResponse(data);
-            resp->setStatusCode(k403Forbidden);
-            (*callbackPtr)(resp);
-            return;
-        }
-
-        if (adminEmail != superAdminEmail)
-        {
-            Json::Value data;
-            data["status"] = "error";
-            data["message"] = "only super admin can register new users";
-            auto resp = HttpResponse::newHttpJsonResponse(data);
-            resp->setStatusCode(k403Forbidden);
-            (*callbackPtr)(resp);
-            return;
-        }
-
         const auto newUserPasswordHash = drogon::utils::getMd5(password);
-        const auto adminPasswordHash = drogon::utils::getMd5(adminPassword);
         auto client = app().getDbClient();
         client->execSqlAsync(
-            "SELECT id FROM users WHERE email=? AND password=? LIMIT 1",
-            [callbackPtr, client, name, email, newUserPasswordHash](const Result &adminResult) {
-                if (adminResult.empty())
+            "SELECT id FROM users WHERE email=? LIMIT 1",
+            [callbackPtr, client, name, email, newUserPasswordHash](
+                const Result &existingUserResult) {
+                if (!existingUserResult.empty())
                 {
                     Json::Value data;
                     data["status"] = "error";
-                    data["message"] = "invalid super admin credentials";
+                    data["message"] = "email already exists";
                     auto resp = HttpResponse::newHttpJsonResponse(data);
-                    resp->setStatusCode(k403Forbidden);
+                    resp->setStatusCode(k409Conflict);
                     (*callbackPtr)(resp);
                     return;
                 }
 
                 client->execSqlAsync(
-                    "SELECT id FROM users WHERE email=? LIMIT 1",
-                    [callbackPtr, client, name, email, newUserPasswordHash](
-                        const Result &existingUserResult) {
-                        if (!existingUserResult.empty())
+                    "INSERT INTO users(name,email,password) VALUES(?,?,?)",
+                    [callbackPtr](const Result &result) {
+                        Json::Value data;
+                        data["status"] = "ok";
+                        data["id"] = static_cast<Json::UInt64>(result.insertId());
+                        auto resp = HttpResponse::newHttpJsonResponse(data);
+                        resp->setStatusCode(k201Created);
+                        (*callbackPtr)(resp);
+                    },
+                    [callbackPtr](const DrogonDbException &e) {
+                        Json::Value data;
+                        data["status"] = "error";
+                        if (isDuplicateEmailError(e))
                         {
-                            Json::Value data;
-                            data["status"] = "error";
                             data["message"] = "email already exists";
                             auto resp = HttpResponse::newHttpJsonResponse(data);
                             resp->setStatusCode(k409Conflict);
@@ -139,46 +108,14 @@ public:
                             return;
                         }
 
-                        client->execSqlAsync(
-                            "INSERT INTO users(name,email,password) VALUES(?,?,?)",
-                            [callbackPtr](const Result &result) {
-                                Json::Value data;
-                                data["status"] = "ok";
-                                data["id"] = static_cast<Json::UInt64>(result.insertId());
-                                auto resp = HttpResponse::newHttpJsonResponse(data);
-                                resp->setStatusCode(k201Created);
-                                (*callbackPtr)(resp);
-                            },
-                            [callbackPtr](const DrogonDbException &e) {
-                                Json::Value data;
-                                data["status"] = "error";
-                                if (isDuplicateEmailError(e))
-                                {
-                                    data["message"] = "email already exists";
-                                    auto resp = HttpResponse::newHttpJsonResponse(data);
-                                    resp->setStatusCode(k409Conflict);
-                                    (*callbackPtr)(resp);
-                                    return;
-                                }
-
-                                data["msg"] = e.base().what();
-                                auto resp = HttpResponse::newHttpJsonResponse(data);
-                                resp->setStatusCode(k500InternalServerError);
-                                (*callbackPtr)(resp);
-                            },
-                            name,
-                            email,
-                            newUserPasswordHash);
-                    },
-                    [callbackPtr](const DrogonDbException &e) {
-                        Json::Value data;
-                        data["status"] = "error";
                         data["msg"] = e.base().what();
                         auto resp = HttpResponse::newHttpJsonResponse(data);
                         resp->setStatusCode(k500InternalServerError);
                         (*callbackPtr)(resp);
                     },
-                    email);
+                    name,
+                    email,
+                    newUserPasswordHash);
             },
             [callbackPtr](const DrogonDbException &e) {
                 Json::Value data;
@@ -188,8 +125,7 @@ public:
                 resp->setStatusCode(k500InternalServerError);
                 (*callbackPtr)(resp);
             },
-            adminEmail,
-            adminPasswordHash);
+            email);
     }
 
 private:
