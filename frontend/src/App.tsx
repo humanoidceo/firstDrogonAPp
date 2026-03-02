@@ -55,18 +55,9 @@ export default function App() {
       <section className="mx-auto w-full max-w-4xl rounded-3xl border border-white/60 bg-white/70 p-6 shadow-panel backdrop-blur-md sm:p-10">
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-slate-600">
-              Drogon + Ollama
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold sm:text-5xl">Chatter Console</h1>
+            
+            <h1 className="mt-2 text-3xl font-semibold sm:text-5xl">Chatter</h1>
           </div>
-          <p className="max-w-xs text-sm leading-relaxed text-slate-600">
-            Ask a question and this UI will call your
-            <code className="mx-1 rounded bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-100">
-              /hugginfacechatter
-            </code>
-            endpoint.
-          </p>
         </div>
 
         <form className="space-y-4" onSubmit={onSubmit}>
