@@ -7,6 +7,11 @@ type AskApiResponse = {
   details?: string;
 };
 
+const backendUrl = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/+$/, "");
+const askEndpoint = backendUrl
+  ? `${backendUrl}/hugginfacechatter`
+  : "/hugginfacechatter";
+
 export default function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -25,7 +30,7 @@ export default function App() {
     setAnswer("");
 
     try {
-      const response = await fetch("/hugginfacechatter", {
+      const response = await fetch(askEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

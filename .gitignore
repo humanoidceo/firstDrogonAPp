@@ -190,6 +190,12 @@ modules.xml
 !.vscode/tasks.json
 !.vscode/launch.json
 *.code-workspace
+.env
+frontend/.env
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 ### VisualStudioCode Patch ###
 # Ignore all local history of files

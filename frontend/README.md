@@ -10,6 +10,8 @@ npm install
 npm run dev
 ```
 
-The Vite server runs on `http://localhost:5173` and proxies `/hugginfacechatter` to `http://localhost:8080`.
+Set `frontend/.env` from `frontend/.env.example` and point `VITE_BACKEND_URL` at your backend.
+
+The Vite server runs on `http://localhost:5173`.
 
 Make sure your Drogon backend and Ollama are running.

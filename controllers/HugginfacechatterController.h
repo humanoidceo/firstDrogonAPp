@@ -1,23 +1,27 @@
 #pragma once
-#include <cctype>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <optional>
 #include <string>
-#include <vector>
 #include <drogon/HttpController.h>
 #include <drogon/drogon.h>
+#include "utils/EnvUtils.h"
 
 using namespace drogon;
-namespace fs = std::filesystem;
 
 class HugginfacechatterController : public drogon::HttpController<HugginfacechatterController>
 {
 public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(HugginfacechatterController::askQuestion, "/hugginfacechatter", Post);
+    ADD_METHOD_TO(HugginfacechatterController::handlePreflight, "/hugginfacechatter", Options);
     METHOD_LIST_END
+
+    void handlePreflight(const HttpRequestPtr &,
+                         std::function<void(const HttpResponsePtr &)> &&callback)
+    {
+        auto resp = HttpResponse::newHttpResponse();
+        addCorsHeaders(resp);
+        resp->setStatusCode(k204NoContent);
+        callback(resp);
+    }
 
     void askQuestion(const HttpRequestPtr &req,
                      std::function<void(const HttpResponsePtr &)> &&callback)
@@ -29,6 +33,7 @@ public:
             data["status"] = "error";
             data["message"] = "question is a required string field";
             auto resp = HttpResponse::newHttpJsonResponse(data);
+            addCorsHeaders(resp);
             resp->setStatusCode(k400BadRequest);
             callback(resp);
             return;
@@ -41,40 +46,43 @@ public:
             data["status"] = "error";
             data["message"] = "question cannot be empty";
             auto resp = HttpResponse::newHttpJsonResponse(data);
+            addCorsHeaders(resp);
             resp->setStatusCode(k400BadRequest);
             callback(resp);
             return;
         }
 
-        const auto model = getConfigValue("OLLAMA_MODEL");
+        const auto model = appenv::getConfigValue("OLLAMA_MODEL");
         if (!model || model->empty())
         {
             Json::Value data;
             data["status"] = "error";
             data["message"] = "Set OLLAMA_MODEL in .env";
             auto resp = HttpResponse::newHttpJsonResponse(data);
+            addCorsHeaders(resp);
             resp->setStatusCode(k500InternalServerError);
             callback(resp);
             return;
         }
 
-        const auto modelValue = trim(*model);
+        const auto modelValue = appenv::trim(*model);
         if (modelValue.empty())
         {
             Json::Value data;
             data["status"] = "error";
             data["message"] = "Set OLLAMA_MODEL in .env";
             auto resp = HttpResponse::newHttpJsonResponse(data);
+            addCorsHeaders(resp);
             resp->setStatusCode(k500InternalServerError);
             callback(resp);
             return;
         }
 
-        const auto baseUrlValue = getConfigValue("OLLAMA_BASE_URL");
+        const auto baseUrlValue = appenv::getConfigValue("OLLAMA_BASE_URL");
         std::string baseUrl = "http://127.0.0.1:11434";
-        if (baseUrlValue && !trim(*baseUrlValue).empty())
+        if (baseUrlValue && !appenv::trim(*baseUrlValue).empty())
         {
-            baseUrl = trim(*baseUrlValue);
+            baseUrl = appenv::trim(*baseUrlValue);
         }
         if (!baseUrl.empty() && baseUrl.back() == '/')
         {
@@ -105,6 +113,7 @@ public:
                     data["status"] = "error";
                     data["message"] = "failed to connect to ollama";
                     auto resp = HttpResponse::newHttpJsonResponse(data);
+                    addCorsHeaders(resp);
                     resp->setStatusCode(k502BadGateway);
                     callback(resp);
                     return;
@@ -119,6 +128,7 @@ public:
                         static_cast<int>(ollamaResponse->statusCode());
                     data["details"] = std::string(ollamaResponse->body());
                     auto resp = HttpResponse::newHttpJsonResponse(data);
+                    addCorsHeaders(resp);
                     resp->setStatusCode(k502BadGateway);
                     callback(resp);
                     return;
@@ -142,98 +152,18 @@ public:
                 data["status"] = "ok";
                 data["answer"] = answer;
                 auto resp = HttpResponse::newHttpJsonResponse(data);
+                addCorsHeaders(resp);
                 resp->setStatusCode(k200OK);
                 callback(resp);
             });
     }
 
 private:
-    static std::string trim(const std::string &input)
+    static void addCorsHeaders(const HttpResponsePtr &resp)
     {
-        size_t start = 0;
-        while (start < input.size() &&
-               std::isspace(static_cast<unsigned char>(input[start])))
-        {
-            ++start;
-        }
-
-        size_t end = input.size();
-        while (end > start &&
-               std::isspace(static_cast<unsigned char>(input[end - 1])))
-        {
-            --end;
-        }
-
-        return input.substr(start, end - start);
-    }
-
-    static std::string unquote(const std::string &value)
-    {
-        if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
-                                  (value.front() == '\'' && value.back() == '\'')))
-        {
-            return value.substr(1, value.size() - 2);
-        }
-
-        return value;
-    }
-
-    static std::optional<std::string> readDotEnvValue(const std::string &key)
-    {
-        std::vector<fs::path> candidates = {".env", "../.env"};
-        std::error_code ec;
-        const fs::path exePath = fs::read_symlink("/proc/self/exe", ec);
-        if (!ec && !exePath.empty())
-        {
-            const fs::path exeDir = exePath.parent_path();
-            candidates.push_back(exeDir / ".env");
-            candidates.push_back(exeDir / "../.env");
-        }
-
-        for (const auto &path : candidates)
-        {
-            std::ifstream file(path);
-            if (!file.is_open())
-            {
-                continue;
-            }
-
-            std::string line;
-            while (std::getline(file, line))
-            {
-                const auto cleaned = trim(line);
-                if (cleaned.empty() || cleaned.front() == '#')
-                {
-                    continue;
-                }
-
-                const auto pos = cleaned.find('=');
-                if (pos == std::string::npos)
-                {
-                    continue;
-                }
-
-                const auto parsedKey = trim(cleaned.substr(0, pos));
-                if (parsedKey != key)
-                {
-                    continue;
-                }
-
-                return unquote(trim(cleaned.substr(pos + 1)));
-            }
-        }
-
-        return std::nullopt;
-    }
-
-    static std::optional<std::string> getConfigValue(const std::string &key)
-    {
-        const char *envValue = std::getenv(key.c_str());
-        if (envValue && *envValue != '\0')
-        {
-            return std::string(envValue);
-        }
-
-        return readDotEnvValue(key);
+        resp->addHeader("Access-Control-Allow-Origin", "*");
+        resp->addHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+        resp->addHeader("Access-Control-Allow-Headers", "Content-Type");
+        resp->addHeader("Access-Control-Max-Age", "86400");
     }
 };

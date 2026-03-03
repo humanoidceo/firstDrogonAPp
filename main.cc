@@ -7,6 +7,7 @@
 #include "controllers/LoginController.h"
 #include "controllers/RegisterController.h"
 #include "controllers/UserController.h"
+#include "utils/EnvUtils.h"
 
 using namespace drogon;
 namespace fs = std::filesystem;
@@ -38,6 +39,8 @@ static std::string resolveConfigPath()
 int main()
 {
     app().loadConfigFile(resolveConfigPath());
+    const auto host = appenv::getConfigValue("APP_HOST").value_or("0.0.0.0");
+    const auto port = appenv::getPortValue("APP_PORT").value_or(8080);
 
     app().registerHandler("/", [](const HttpRequestPtr &req,
                                   std::function<void (const HttpResponsePtr &)> &&callback)
@@ -55,7 +58,7 @@ int main()
                               callback(resp);
                           });
 
-    app().addListener("0.0.0.0", 8080);
+    app().addListener(host, port);
 
     app().run();
 }
